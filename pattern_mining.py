@@ -2,7 +2,7 @@
 CS 470 Final Project - Frequent Pattern Mining Module
 Mines frequent patterns and association rules from US accident data
 
-Author: Gerry
+Author: Geardo Gomez Silva
 """
 
 import pandas as pd
@@ -374,4 +374,5 @@ def generate_association_rules(frequent_itemsets, metric="confidence", min_thres
     except Exception as e:
         print(f"[WARNING] Error generating rules: {e}")
         return pd.DataFrame()
+
 
