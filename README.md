@@ -36,7 +36,7 @@ CS470_Final_Project/
 │   ├── data_loader.py          # Data loading (Zia)
 │   ├── feature_engineering.py  # Feature extraction (Robert)
 │   ├── clustering.py           # K-Means, DBSCAN (Dylan)
-│   └── pattern_mining.py       # Apriori, rules (Gerry)
+│   └── pattern_mining.py       # Apriori, rules (Gerardo)
 ├── output/
 │   ├── processed/              # Processed datasets
 │   ├── visualizations/         # Plots
