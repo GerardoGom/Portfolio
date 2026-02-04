@@ -58,7 +58,7 @@ CS470_Final_Project/
 ## Team Contributions
 - **Robert:** Feature engineering, temporal features, POI processing
 - **Dylan:** Clustering algorithms (K-Means, DBSCAN)
-- **Gerry:** Results analysis, pattern interpretation
+- **Gerardo:** Results analysis, pattern interpretation, frequent pattern mining algorithm-APRIORI algorithm.
 - **Zia:** Data cleaning, weather features processing
 
 ## Video Presentation
