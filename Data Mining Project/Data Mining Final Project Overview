@@ -1,1 +1,8 @@
-In this collaborative study of U.S. accident data, I served as the Results Analyst and Pattern Mining Lead, where I was responsible for transforming complex algorithmic outputs into interpretable safety insights. While the team worked on data cleaning and initial clustering (K-Means/DBSCAN), I specifically implemented the Apriori Algorithm using the MLxtend library to perform Frequent Pattern Mining. My primary focus was uncovering the non-obvious relationships between temporal factors, weather conditions, and road infrastructure to identify high-risk co-occurrences that contribute to accident severity. Beyond the technical implementation, I led the interpretation and visualization of these results, translating the association rules discovered by the Apriori model into actionable insights aimed at improving traffic management and accident prevention strategies.
+In this collaborative study of U.S. accident data, I served as the Results Analyst and Pattern Mining Lead, 
+where I was responsible for transforming complex algorithmic outputs into interpretable safety insights. 
+While the team worked on data cleaning and initial clustering (K-Means/DBSCAN), I specifically implemented the 
+Apriori Algorithm using the MLxtend library to perform Frequent Pattern Mining. My primary focus was uncovering the 
+non-obvious relationships between temporal factors, weather conditions, and road infrastructure to identify 
+high-risk co-occurrences that contribute to accident severity. Beyond the technical implementation, I led the interpretation 
+and visualization of these results, translating the association rules discovered by the Apriori model into actionable insights 
+aimed at improving traffic management and accident prevention strategies.
