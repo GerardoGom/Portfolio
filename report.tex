@@ -1,0 +1,666 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray}
+}
+
+\title{CS 470 Final Project: Hidden Patterns in US Traffic Accidents}
+\author{
+    Robert Jarman (Student ID: 2547392) \\
+    Dylan Laborwit \\
+    Gerardo ``Gerry'' Gomez Silva \\
+    Zia Tomlin
+}
+\date{December 8, 2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Collaboration Statement}
+
+We, Robert Jarman, Dylan Laborwit, Gerardo ``Gerry'' Gomez Silva, and Zia Tomlin, collaborated on this project as a team. Robert handled feature engineering and temporal feature extraction. Dylan implemented the clustering algorithms (K-Means, Hierarchical, and DBSCAN). Gerry analyzed results, created visualizations, and performed frequent pattern mining. Zia managed data loading and cleaning. We used the course lecture slides on clustering and frequent pattern mining, scikit-learn documentation, and MLxtend documentation for FP-Growth and Apriori implementation. The dataset was obtained from Kaggle (Moosavi et al., 2019). No other external resources or collaboration occurred. 
+
+\section{Problem Description}
+
+The problem we aim to solve is \textbf{identifying hidden patterns and clusters of high-risk driving conditions} in U.S. accident data. By combining clustering methods (K-Means, DBSCAN) with frequent pattern mining, we seek to uncover when, where, and under what conditions accidents are most likely to occur—insights that are not obvious through traditional analysis.
+
+\textbf{Goals:}
+
+\begin{enumerate}
+    \item Discover natural groupings of accidents with similar characteristics using clustering algorithms
+    \item Identify frequent patterns of factors that co-occur in accidents using association rule mining
+    \item Extract actionable insights for accident prevention and traffic management
+    \item Understand the relationships between temporal, weather, infrastructure, and severity factors
+\end{enumerate}
+
+\section{Data Description}
+
+\textbf{Dataset:} US Accidents (2016-2023)  
+\textbf{Source:} \url{https://www.kaggle.com/datasets/sobhanmoosavi/us-accidents}
+
+\textbf{Statistics:}
+
+\begin{itemize}
+    \item Total records: 7,728,394 accidents
+    \item Geographic coverage: 49 US states
+    \item Time period: February 2016 – March 2023
+    \item Original features: 47 columns
+    \item Data sources: Traffic APIs, cameras, sensors
+\end{itemize}
+
+\textbf{Key attributes:} Geographic coordinates (latitude/longitude), timestamps (start/end times), weather conditions (temperature, humidity, visibility, precipitation, wind), severity levels (1-4), road infrastructure features (POI: crossings, junctions, traffic signals, stations, stops), and accident duration.
+
+\textbf{Data Quality:} The dataset contains some missing values, particularly in weather-related fields (26\% missing in Wind\_Chill) and geographic end coordinates (44\% missing). These were handled through appropriate imputation strategies during preprocessing.
+
+\section{Data Pre-processing}
+
+Our data preprocessing pipeline consisted of several key steps to transform raw accident data into a format suitable for clustering and pattern mining algorithms.
+
+\subsection{Feature Engineering}
+
+\subsubsection{Temporal Feature Extraction}
+
+We extracted 12 temporal features from the \texttt{Start\_Time} and \texttt{End\_Time} columns:
+
+\begin{itemize}
+    \item \textbf{Basic components:} Year, Month, Day, Hour, DayOfWeek (0-6), DayOfWeek\_Name
+    \item \textbf{Derived features:} Weekend (binary: 1 if Saturday/Sunday), Season (Winter/Spring/Summer/Fall), TimeOfDay (Morning/Afternoon/Evening/Night)
+    \item \textbf{Traffic patterns:} RushHour (binary: 1 if 7-9 AM or 4-6 PM), Quarter (1-4)
+    \item \textbf{Duration:} Duration\_Minutes (calculated from End\_Time - Start\_Time)
+\end{itemize}
+
+\subsubsection{Point of Interest (POI) Processing}
+
+We processed 13 binary POI features indicating nearby infrastructure:
+\begin{itemize}
+    \item Individual features: Crossing, Junction, Traffic\_Signal, Station, Stop, Railway, Roundabout, Bump, Give\_Way, No\_Exit, Traffic\_Calming, Amenity, Turning\_Loop
+    \item \textbf{Aggregate features:} Total\_POI\_Count (sum of all POI features), POI\_Density (categorized as None/Low/Medium/High)
+\end{itemize}
+
+\subsubsection{Twilight and Daylight Features}
+
+We encoded four twilight-related features:
+\begin{itemize}
+    \item Sunrise\_Sunset\_Encoded (Day=1, Night=0)
+    \item Civil\_Twilight\_Encoded, Nautical\_Twilight\_Encoded, Astronomical\_Twilight\_Encoded
+\end{itemize}
+
+\subsubsection{Categorical Encoding}
+
+We applied label encoding to categorical variables:
+\begin{itemize}
+    \item \textbf{Weather\_Condition:} Label encoded using scikit-learn's LabelEncoder
+    \item \textbf{Wind\_Direction:} Mapped to 0-17 (16 cardinal/intercardinal directions + CALM + VAR)
+    \item \textbf{Season:} Encoded as 0=Winter, 1=Spring, 2=Summer, 3=Fall
+    \item \textbf{TimeOfDay:} Encoded as 0=Night, 1=Morning, 2=Afternoon, 3=Evening
+    \item \textbf{State:} Converted to State\_Accident\_Frequency (count of accidents per state)
+\end{itemize}
+
+\subsection{Missing Value Handling}
+
+We addressed missing values using domain-appropriate strategies:
+
+\begin{itemize}
+    \item \textbf{Weather features:} Filled with median values (Temperature, Humidity, Pressure, Visibility, Wind Speed, Precipitation)
+    \item \textbf{Categorical features:} Filled with mode (Wind\_Direction) or default value (Weather\_Condition = ``Clear'')
+    \item \textbf{Geographic features:} Dropped End\_Lat and End\_Lng (44\% missing, redundant with Start coordinates)
+\end{itemize}
+
+\subsection{Feature Selection}
+
+After preprocessing, we selected 26 features for clustering analysis, organized into categories:
+
+\begin{table}[H]
+\centering
+\caption{Feature Engineering Summary}
+\begin{tabular}{lcc}
+\toprule
+Category & Original Features & Final Features \\
+\midrule
+Temporal & 2 & 7 \\
+Geographic & 4 & 3 \\
+Weather & 11 & 7 \\
+POI/Infrastructure & 13 & 6 \\
+Severity & 1 & 1 \\
+Day/Night & 1 & 1 \\
+Other & 15 & 1 \\
+\midrule
+\textbf{Total} & \textbf{47} & \textbf{26} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Feature Scaling}
+
+For clustering algorithms, we applied StandardScaler to normalize all features to have mean=0 and standard deviation=1, ensuring that features with different scales (e.g., temperature in Fahrenheit vs. humidity percentage) contribute equally to distance calculations.
+
+\subsection{Dropped Features}
+
+We removed features that were:
+\begin{itemize}
+    \item \textbf{Identifiers:} ID, Source
+    \item \textbf{High missingness:} End\_Lat, End\_Lng (44\%), Wind\_Chill (26\%)
+    \item \textbf{Redundant:} Weather\_Timestamp (redundant with Start\_Time), Timezone (redundant with State), Country (all ``US'')
+    \item \textbf{Too granular:} Street (336k unique values), City, County, Zipcode (825k unique), Airport\_Code (2045 unique)
+    \item \textbf{Text fields:} Description (too complex for automated analysis)
+    \item \textbf{Low signal:} Amenity (1\% true), Bump (0.05\%), Give\_Way (0.5\%), No\_Exit (0.25\%), Railway (0.9\%), Roundabout (0.003\%), Traffic\_Calming (0.1\%), Turning\_Loop (0\% true)
+    \item \textbf{Redundant twilight:} Civil\_Twilight, Nautical\_Twilight, Astronomical\_Twilight (redundant with Sunrise\_Sunset)
+\end{itemize}
+
+\section{Data Mining Methods}
+
+\subsection{K-Means Clustering}
+
+K-Means is a partition-based clustering algorithm that groups data points into $k$ clusters by minimizing within-cluster sum of squares (WCSS). We implemented K-Means using scikit-learn's \texttt{KMeans} class.
+
+\textbf{Methodology:}
+\begin{itemize}
+    \item Tested $k$ values from 3 to 10 clusters
+    \item Used random initialization with \texttt{random\_state=42} for reproducibility
+    \item Set \texttt{n\_init=10} to run 10 different initializations and select the best result
+    \item Applied to standardized feature space (26 features)
+\end{itemize}
+
+\textbf{Evaluation Metrics:}
+\begin{itemize}
+    \item \textbf{Silhouette Score:} Measures how similar an object is to its own cluster compared to other clusters (range: -1 to 1, higher is better)
+    \item \textbf{Davies-Bouldin Index:} Measures average similarity ratio of clusters (lower is better)
+    \item \textbf{Inertia (WCSS):} Within-cluster sum of squares (used for elbow method)
+\end{itemize}
+
+\textbf{Results:} We selected the optimal $k$ value based on the highest silhouette score. The elbow plot and silhouette analysis helped identify the best number of clusters for our dataset.
+
+\subsection{DBSCAN Clustering}
+
+DBSCAN (Density-Based Spatial Clustering of Applications with Noise) is a density-based algorithm that groups together points that are closely packed, marking points in low-density regions as outliers.
+
+\textbf{Methodology:}
+\begin{itemize}
+    \item Tested multiple parameter combinations:
+    \begin{itemize}
+        \item \texttt{eps} (neighborhood radius): [0.02, 0.065]
+        \item \texttt{min\_samples} (minimum points for core): [20, 40, 100]
+    \end{itemize}
+    \item Evaluated number of clusters, noise points, and Density-Based Clustering Validation (DBCV) scores
+    \item Applied to standardized feature space
+    \item DBCV score used as primary evaluation metric (higher is better, range: -1 to 1)
+\end{itemize}
+
+\textbf{Advantages:}
+\begin{itemize}
+    \item Can find clusters of arbitrary shape
+    \item Automatically identifies noise/outliers
+    \item Does not require pre-specifying number of clusters
+\end{itemize}
+
+\textbf{Results:} DBSCAN identified varying numbers of clusters depending on parameter settings, with some configurations producing many noise points, indicating that some accidents may be outliers or have unique characteristics.
+
+\subsection{Frequent Pattern Mining}
+
+We applied frequent pattern mining to discover associations between accident characteristics. Our approach used the FP-Growth algorithm (with Apriori as fallback) from the MLxtend library.
+
+\textbf{Methodology:}
+
+\begin{enumerate}
+    \item \textbf{Transaction Preparation:} Converted continuous features to categorical bins:
+    \begin{itemize}
+        \item Temperature: Freezing ($<32°F$), Cold (32-50), Mild (50-70), Warm (70-90), Hot ($>90°F$)
+        \item Humidity: VeryLow (0-30\%), Low (30-50\%), Medium (50-70\%), High (70-90\%), VeryHigh (90-100\%)
+        \item Visibility: VeryLow (0-5 mi), Low (5-10), Medium (10-20), High ($>20$)
+        \item Wind Speed: Calm (0-5 mph), Light (5-15), Moderate (15-25), Strong ($>25$)
+        \item Precipitation: Trace (0-0.1 in), Light (0.1-0.5), Moderate (0.5-1.0), Heavy ($>1.0$)
+        \item Distance: VeryShort (0-0.5 mi), Short (0.5-1.0), Medium (1.0-2.0), Long ($>2.0$)
+        \item Hour: Night (21-5), Morning (5-12), Afternoon (12-17), Evening (17-21)
+        \item POI Count: None (0), Single (1), Few (2-3), Many ($>3$)
+    \end{itemize}
+    
+    \item \textbf{Itemset Creation:} Each accident record became a transaction containing categorical items representing:
+    \begin{itemize}
+        \item Temporal features: Season, TimeOfDay, Weekend, RushHour, Quarter, DayOfWeek, Hour
+        \item Weather features: Weather condition, temperature bin, humidity bin, visibility bin, wind speed bin, precipitation bin, pressure bin
+        \item Infrastructure: POI features (Crossing, Junction, Traffic Signal, Station, Stop), POI density
+        \item Geographic: Distance bin
+        \item Severity: Severity level (1-4)
+    \end{itemize}
+    
+    \item \textbf{Pattern Mining:} Applied FP-Growth algorithm with:
+    \begin{itemize}
+        \item \texttt{min\_support = 0.02} (patterns must appear in at least 2\% of transactions)
+        \item Used FP-Growth for efficiency (faster than Apriori for large datasets)
+        \item Generated frequent itemsets of various lengths (1-item, 2-item, 3+ item patterns)
+    \end{itemize}
+    
+    \item \textbf{Association Rule Generation:} Created rules from frequent itemsets with:
+    \begin{itemize}
+        \item \texttt{min\_confidence = 0.7} (rules must be at least 70\% accurate)
+        \item Metric: confidence (probability of consequent given antecedent)
+        \item Additional metrics: support, lift, conviction
+        \item Sorted by lift (strength of association)
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Algorithm Choice:} We chose FP-Growth over Apriori because:
+\begin{itemize}
+    \item FP-Growth is more efficient for large datasets (avoids candidate generation)
+    \item Faster execution time (2-10 minutes vs. 10-30 minutes for Apriori)
+    \item Produces identical results to Apriori
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{methodology_flowchart.png}
+\caption{Frequent Pattern Mining Methodology Pipeline}
+\label{fig:methodology}
+\end{figure}
+
+\section{Results}
+
+\subsection{Clustering Results}
+
+We applied three clustering algorithms to identify patterns in accident data: K-Means, Hierarchical Clustering, and DBSCAN. Each algorithm revealed different aspects of the data structure.
+
+\subsubsection{K-Means Clustering}
+
+Our K-Means analysis tested $k$ values from 3 to 10. The optimal number of clusters was determined using silhouette analysis and the elbow method.
+
+\textbf{Key Findings:}
+\begin{itemize}
+    \item Best $k$ value: 3 clusters
+    \item Silhouette score: 0.5135 (highest among tested $k$ values)
+    \item Davies-Bouldin Index: 0.6893 (lower is better)
+    \item Inertia (WCSS): 6025.9
+\end{itemize}
+
+The silhouette analysis indicated that $k=3$ provided the best cluster separation. For comparison, $k=4$ achieved a silhouette score of 0.4919 with Davies-Bouldin Index of 0.68 and inertia of 4175.94. While $k=4$ had lower inertia (indicating tighter clusters), the silhouette score favored $k=3$, suggesting better-defined cluster boundaries.
+
+\textbf{Cluster Characteristics:} The three clusters identified distinct geographic patterns in the Chicago metropolitan area:
+\begin{itemize}
+    \item \textbf{Cluster 0 (Orange):} Concentrated along the lakefront, extending north into suburbs and covering parts of downtown Chicago
+    \item \textbf{Cluster 1 (Blue):} Covers large areas west and southwest of Chicago, including many suburban regions
+    \item \textbf{Cluster 2 (Green):} Follows major highway routes, extending south and southeast from the city
+\end{itemize}
+
+\subsubsection{DBSCAN Clustering}
+
+DBSCAN identified varying numbers of clusters depending on parameter settings. We tested multiple configurations to find optimal density-based clusters.
+
+\textbf{Parameter Testing Results:}
+
+\begin{table}[H]
+\centering
+\caption{DBSCAN Parameter Testing Results}
+\small
+\begin{tabular}{lcc}
+\toprule
+Configuration & Clusters Identified & DBCV Score \\
+\midrule
+eps=0.065, min\_samples=100 & Multiple dense clusters & 0.8963 \\
+eps=0.02, min\_samples=20 & Multiple clusters & 0.7094 \\
+eps=0.065, min\_samples=40 & Multiple clusters & -0.1797 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Best Configuration:} eps=0.065, min\_samples=100 achieved the highest Density-Based Clustering Validation (DBCV) score of 0.8963.
+
+\textbf{Key Observations:}
+\begin{itemize}
+    \item \textbf{Best parameters:} eps=0.065, min\_samples=100
+    \item \textbf{Cluster pattern:} DBSCAN identified several small, dense, localized clusters rather than broad contiguous regions (unlike K-Means)
+    \item \textbf{Noise points:} A significant portion of data points were marked as noise, indicating many accidents have unique characteristics that don't fit into dense clusters
+    \item \textbf{Geographic distribution:} Clusters were more localized and specific compared to K-Means, with distinct clusters in western, southern, southeastern, and lakefront northern areas
+\end{itemize}
+
+The density-based approach revealed that accident patterns are not uniformly distributed but form localized hotspots, which is valuable for targeted intervention strategies.
+
+\subsubsection{Hierarchical Clustering}
+
+We also applied Hierarchical Clustering using Ward linkage for comparison with partition-based methods.
+
+\textbf{Results:}
+\begin{itemize}
+    \item \textbf{Best configuration:} n\_clusters=3, linkage='ward'
+    \item \textbf{DBCV score:} -0.7467 (for 3 clusters)
+    \item \textbf{Alternative:} n\_clusters=4 achieved DBCV score of -0.7643
+\end{itemize}
+
+The hierarchical clustering results showed similar geographic patterns to K-Means, with three main clusters following similar distributions (lakefront/northern, western/southwestern, and southern/southeastern regions). This consistency across different algorithms suggests robust underlying patterns in the accident data.
+
+\subsubsection{Weather-Based Cluster Analysis}
+
+We analyzed how weather conditions affect cluster formation by examining top accident clusters under different weather scenarios.
+
+\textbf{Clear Weather Clusters (Top 5):}
+\begin{itemize}
+    \item Cluster 1: 1,601 accidents (northern area, near Waukegan/North Chicago)
+    \item Cluster 20: 1,294 accidents (mid-western, near Elgin/Schaumburg)
+    \item Cluster 31: 705 accidents (central-western, near Oak Park/Cicero)
+    \item Cluster 2: 701 accidents (south-central, near Joliet/Aurora)
+    \item Cluster 4: 571 accidents (southeastern, along lakefront near Gary/Hammond)
+\end{itemize}
+
+\textbf{Rain Weather Clusters (Top 5):}
+\begin{itemize}
+    \item Cluster 1: 1,252 accidents (northwestern area)
+    \item Cluster 7: 670 accidents (central-eastern, near Lake Michigan)
+    \item Cluster 3: 382 accidents (central area, east of downtown)
+    \item Cluster 14: 380 accidents (south-central)
+    \item Cluster 4: 371 accidents (Lake Michigan shoreline)
+\end{itemize}
+
+\textbf{Snow Weather Clusters (Top 5):}
+\begin{itemize}
+    \item Cluster 3: 750 accidents (north-central, north of downtown)
+    \item Cluster 1: 544 accidents (central-eastern, near Lake Michigan)
+    \item Cluster 6: 331 accidents (central area, slightly east of downtown)
+    \item Cluster 8: 330 accidents (south-central)
+    \item Cluster 4: 294 accidents (Lake Michigan shoreline)
+\end{itemize}
+
+\textbf{Key Finding:} Weather conditions significantly affect the spatial distribution and intensity of accident clusters. Clear weather produces the largest clusters (up to 1,601 accidents), while snow conditions show different cluster locations and smaller sizes, suggesting weather-specific risk patterns that require targeted responses.
+
+\subsubsection{Clustering Method Comparison}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of Clustering Methods}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Method & Parameters & Silhouette & Davies-Bouldin & DBCV \\
+\midrule
+K-Means (k=3) & k=3 & 0.5135 & 0.6893 & -- \\
+K-Means (k=4) & k=4 & 0.4919 & 0.68 & -- \\
+Hierarchical & n=3, ward & -- & -- & -0.7467 \\
+Hierarchical & n=4, ward & -- & -- & -0.7643 \\
+DBSCAN & eps=0.065, min=100 & -- & -- & 0.8963 \\
+DBSCAN & eps=0.02, min=20 & -- & -- & 0.7094 \\
+DBSCAN & eps=0.065, min=40 & -- & -- & -0.1797 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Observations:}
+\begin{itemize}
+    \item \textbf{K-Means (k=3)} achieved the best silhouette score (0.5135), indicating well-separated clusters
+    \item \textbf{DBSCAN} with eps=0.065 and min\_samples=100 achieved the highest DBCV score (0.8963), validating its density-based approach
+    \item \textbf{Hierarchical clustering} showed consistent patterns with K-Means, suggesting robust underlying structure
+    \item Each method revealed different aspects: K-Means identified broad geographic regions, while DBSCAN found localized hotspots
+\end{itemize}
+
+\subsection{Pattern Mining Results}
+
+\subsubsection{Frequent Itemsets}
+
+Our pattern mining analysis identified \textbf{833 frequent itemsets} from the accident data:
+
+\begin{itemize}
+    \item \textbf{1-item itemsets:} 26 patterns (single features)
+    \item \textbf{2-item itemsets:} 199 patterns (feature pairs)
+    \item \textbf{3+ item itemsets:} 606 patterns (complex multi-feature combinations)
+\end{itemize}
+
+\textbf{Most Common Single Features (Top 10):}
+
+\begin{table}[H]
+\centering
+\caption{Top 10 Most Frequent Single Features}
+\begin{tabular}{lcc}
+\toprule
+Feature & Support & Percentage \\
+\midrule
+Severity\_3 & 0.510 & 51.0\% \\
+Time\_Morning & 0.466 & 46.6\% \\
+Severity\_2 & 0.450 & 45.0\% \\
+RushHour & 0.391 & 39.1\% \\
+Near\_Crossing & 0.297 & 29.7\% \\
+Near\_TrafficSignal & 0.278 & 27.8\% \\
+Season\_Fall & 0.279 & 27.9\% \\
+Season\_Summer & 0.250 & 25.0\% \\
+Season\_Winter & 0.238 & 23.8\% \\
+Weather\_Mostly Cloudy & 0.227 & 22.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Severity 3 accidents are the most common (51\%), followed by morning accidents (46.6\%) and Severity 2 (45\%).
+
+\textbf{Most Frequent 2-Item Combinations (Top 5):}
+
+\begin{table}[H]
+\centering
+\caption{Top 5 Most Frequent 2-Item Patterns}
+\begin{tabular}{lc}
+\toprule
+Combination & Support \\
+\midrule
+RushHour + Time\_Morning & 24.7\% \\
+Near\_TrafficSignal + Near\_Crossing & 20.2\% \\
+Time\_Morning + Severity\_2 & 26.6\% \\
+RushHour + Severity\_2 & 19.1\% \\
+RushHour + Severity\_3 & 18.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Traffic signals and crossings frequently co-occur (20.2\%), and morning rush hour is strongly associated with accidents (24.7\%).
+
+\subsubsection{Association Rules}
+
+We generated \textbf{256 association rules} with confidence $\geq$ 70\%. The strongest associations reveal critical accident patterns.
+
+\textbf{Top 5 Strongest Rules (by Lift):}
+
+\begin{table}[H]
+\centering
+\caption{Top 5 Association Rules by Lift}
+\small
+\begin{tabular}{p{6cm}cc}
+\toprule
+Rule & Confidence & Lift \\
+\midrule
+RushHour + Time\_Morning + Near\_TrafficSignal + Weather\_Mostly Cloudy $\rightarrow$ Near\_Crossing + Severity\_2 & 70.4\% & \textbf{3.98} \\
+Severity\_3 + Weather\_Light Snow $\rightarrow$ Season\_Winter & 74.4\% & \textbf{3.12} \\
+RushHour + Weather\_Light Snow $\rightarrow$ Season\_Winter & 71.6\% & \textbf{3.00} \\
+Weather\_Mostly Cloudy + RushHour + Severity\_2 + Time\_Morning + Near\_TrafficSignal $\rightarrow$ Near\_Crossing & 87.7\% & 2.96 \\
+Time\_Morning + Near\_TrafficSignal + Severity\_2 + Weather\_Mostly Cloudy $\rightarrow$ Near\_Crossing & 86.7\% & 2.92 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{association_rules_simplified.png}
+\caption{Top 3 Strongest Association Rules (Lift measures strength of association)}
+\label{fig:rules}
+\end{figure}
+
+\textbf{Key Finding:} The strongest pattern (Lift=3.98) shows that morning rush hour accidents at traffic signals with cloudy weather are nearly \textbf{4x more likely} to involve crossings and result in Severity 2 accidents than random chance would predict.
+
+\subsubsection{Pattern Analysis by Category}
+
+\textbf{Time-Based Patterns:}
+
+\begin{table}[H]
+\centering
+\caption{Time Pattern Analysis}
+\begin{tabular}{lcc}
+\toprule
+Time Pattern & Number of Rules & Average Lift \\
+\midrule
+Time\_Morning & 89 & 2.15 \\
+RushHour & 78 & 2.08 \\
+Time\_Evening & 23 & 1.65 \\
+Time\_Afternoon & 18 & 1.58 \\
+Time\_Night & 15 & 1.52 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Morning and rush hour patterns dominate, with significantly higher lift values, indicating these are the most predictive time periods.
+
+\textbf{Weather-Based Patterns:}
+
+\begin{table}[H]
+\centering
+\caption{Weather Pattern Analysis}
+\begin{tabular}{lcc}
+\toprule
+Weather Pattern & Number of Rules & Average Lift \\
+\midrule
+Weather\_Light Snow & 8 & 2.45 \\
+Weather\_Mostly Cloudy & 67 & 2.34 \\
+Weather\_Fair & 34 & 1.89 \\
+Weather\_Cloudy & 28 & 1.82 \\
+Weather\_Partly Cloudy & 25 & 1.75 \\
+Weather\_Clear & 5 & 1.42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} ``Mostly Cloudy'' weather appears in the most rules and has high predictive power. Light snow has the highest average lift (2.45), indicating strong associations when it occurs.
+
+\textbf{Infrastructure (POI) Patterns:}
+
+\begin{table}[H]
+\centering
+\caption{Infrastructure Pattern Analysis}
+\begin{tabular}{lcc}
+\toprule
+Infrastructure & Number of Rules & Average Lift \\
+\midrule
+Near\_Crossing & 142 & 2.48 \\
+Near\_TrafficSignal & 98 & 2.35 \\
+Near\_Junction & 12 & 1.68 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Crossings and traffic signals are the most predictive infrastructure features, appearing in the majority of high-lift rules. This suggests intersections with both crossings and signals are high-risk locations.
+
+\subsection{Key Insights}
+
+\subsubsection{Temporal Patterns}
+
+\begin{enumerate}
+    \item \textbf{Morning Rush Hour is Critical:} 46.6\% of accidents occur in the morning, with 39.1\% during rush hour periods (7-9 AM, 4-6 PM).
+    \item \textbf{Rush Hour + Morning = High Risk:} The combination appears in 24.7\% of accidents, making it the most frequent 2-item pattern.
+    \item \textbf{Evening has Lower Association:} Evening accidents have lower lift values (1.65), suggesting less predictable patterns compared to morning.
+\end{enumerate}
+
+\subsubsection{Infrastructure Patterns}
+
+\begin{enumerate}
+    \item \textbf{Traffic Signals + Crossings = Hotspot:} 20.2\% of accidents involve both infrastructure types, indicating these are high-risk intersection types.
+    \item \textbf{Crossings are Highly Predictive:} Appears in 142 association rules with average lift of 2.48, making it the most predictive infrastructure feature.
+    \item \textbf{Junctions Less Predictive:} Only 12 rules involve junctions, suggesting less consistent patterns.
+\end{enumerate}
+
+\subsubsection{Weather Patterns}
+
+\begin{enumerate}
+    \item \textbf{Cloudy Weather Dominates:} ``Mostly Cloudy'' appears in 22.7\% of accidents and 67 rules, making it the most common weather condition in accidents.
+    \item \textbf{Light Snow is Highly Predictive:} When present, has lift of 2.45, indicating strong associations with accidents.
+    \item \textbf{Clear Weather is Rare:} Only 4.8\% of accidents occur in clear conditions, suggesting clear weather is safer.
+\end{enumerate}
+
+\subsubsection{Severity Patterns}
+
+\begin{enumerate}
+    \item \textbf{Severity 3 is Most Common:} 51\% of accidents are Severity 3 (moderate severity).
+    \item \textbf{Severity 2 is Second:} 45\% of accidents are Severity 2 (minor severity).
+    \item \textbf{Severity 4 is Rare:} Only 3\% of accidents are Severity 4 (severe), making it difficult to find patterns.
+    \item \textbf{Winter Snow = Higher Severity:} Light snow with Severity 3 has lift of 3.12, indicating strong association between winter conditions and higher severity accidents.
+\end{enumerate}
+
+\subsection{Limitations}
+
+\begin{enumerate}
+    \item \textbf{Data Scope:} Analysis was performed on a subset of the full dataset (Chicago area with 25,000-30,000 records). Results may not generalize to other cities or regions.
+    \item \textbf{Severity 4 Rarity:} Very few Severity 4 accidents (3\%) limits pattern discovery for the most severe accidents.
+    \item \textbf{Support Threshold:} min\_support=0.02 may miss rare but important patterns that occur in less than 2\% of accidents.
+    \item \textbf{Correlation vs Causation:} Association rules show correlations, not necessarily causation. The relationships identified are statistical associations that require domain expertise to interpret.
+    \item \textbf{Feature Binning:} Continuous features were discretized into bins, which may lose some granularity in the data.
+    \item \textbf{Geographic Limitation:} Analysis focused on Chicago area; patterns may differ in other geographic regions.
+\end{enumerate}
+
+\section{Future Work}
+
+\begin{enumerate}
+    \item \textbf{Real-time Prediction:} Build a machine learning model to predict accident severity in real-time based on current conditions (weather, time, location).
+    
+    \item \textbf{Deep Learning:} Apply LSTM networks for temporal pattern recognition to capture long-term dependencies in accident sequences.
+    
+    \item \textbf{Geographic Expansion:} Analyze city-specific patterns (NYC, LA, Houston, etc.) to identify universal vs. city-specific risk factors.
+    
+    \item \textbf{Causality Analysis:} Move beyond correlation to causal inference using methods like causal graphs or instrumental variables.
+    
+    \item \textbf{Integration with Traffic Flow:} Combine accident data with real-time traffic flow data to create proactive alert systems.
+    
+    \item \textbf{Severity-Specific Mining:} Run separate pattern mining analyses for each severity level with lower support thresholds to discover rare but critical patterns.
+    
+    \item \textbf{Weather Refinement:} Analyze specific weather conditions in more detail (rain intensity, visibility thresholds, wind gusts) to identify precise risk thresholds.
+    
+    \item \textbf{Spatial Clustering:} Apply geographic clustering (e.g., DBSCAN on lat/lng) to identify accident hotspots and combine with pattern mining results.
+    
+    \item \textbf{Multi-City Comparison:} Compare patterns across different cities to identify universal risk factors vs. city-specific characteristics.
+    
+    \item \textbf{Interactive Dashboard:} Create an interactive visualization dashboard for traffic safety managers to explore patterns and make data-driven decisions.
+\end{enumerate}
+
+\section{Conclusion}
+
+This project successfully applied clustering and frequent pattern mining techniques to identify hidden patterns in US traffic accident data. Our analysis revealed several critical insights:
+
+\textbf{Key Findings:}
+\begin{itemize}
+    \item \textbf{When:} Morning rush hour (7-9 AM) is the highest risk period, with 46.6\% of accidents occurring during morning hours.
+    \item \textbf{Where:} Intersections with both traffic signals and pedestrian crossings are high-risk locations (20.2\% of accidents).
+    \item \textbf{Weather:} Mostly cloudy conditions are most common (22.7\%), while light snow creates the strongest associations (Lift=2.45).
+    \item \textbf{Severity:} Severity 3 accidents are most common (51\%), with winter snow conditions strongly associated with higher severity (Lift=3.12).
+\end{itemize}
+
+\textbf{Strongest Pattern:} The association rule with the highest lift (3.98) shows that morning rush hour accidents at traffic signals with cloudy weather are nearly 4x more likely to involve crossings and result in Severity 2 accidents than random chance would predict.
+
+\textbf{Practical Impact:} These findings provide actionable insights for:
+\begin{itemize}
+    \item \textbf{Traffic Safety Management:} Deploy additional resources during morning rush hour at high-risk intersections
+    \item \textbf{Infrastructure Investment:} Prioritize safety improvements at intersections with both traffic signals and crossings
+    \item \textbf{Weather Response:} Enhance safety protocols during cloudy and snowy conditions
+    \item \textbf{Policy Development:} Focus traffic management interventions on identified high-risk time windows and locations
+\end{itemize}
+
+The combination of clustering and frequent pattern mining proved effective in uncovering non-obvious relationships that traditional statistical analysis might miss. These insights can inform evidence-based traffic safety strategies and contribute to reducing accident rates.
+
+\section*{References}
+
+Moosavi, S., Samavatian, M. H., Parthasarathy, S., \& Ramnath, R. (2019). A Countrywide Traffic Accident Dataset. \textit{arXiv preprint arXiv:1906.05409}.
+
+Scikit-learn: Machine Learning in Python. Pedregosa et al., JMLR 12, pp. 2825-2830, 2011.
+
+MLxtend: Providing machine learning and data science utilities and extensions to Python's scientific computing stack. Raschka, S. (2018). \textit{Journal of Open Source Software}, 3(24), 638.
+
+\end{document}
+
